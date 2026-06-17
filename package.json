@@ -1,0 +1,134 @@
+{
+  "name": "diff-erent",
+  "displayName": "Diff-erent",
+  "description": "A readable Git diff review surface for VS Code.",
+  "version": "0.0.1",
+  "publisher": "pedro-ferreira",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "categories": [
+    "Source Control",
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:different.openWorkingTree",
+    "onCommand:different.openAgainstDefaultBase",
+    "onCommand:different.openAgainstRef",
+    "onCommand:different.openResource",
+    "onCommand:different.openFileDiff",
+    "onCommand:different.refreshChanges",
+    "onView:different.changesView"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "different.openWorkingTree",
+        "title": "Diff-erent: Open Current Changes",
+        "category": "Diff-erent",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "different.openAgainstDefaultBase",
+        "title": "Diff-erent: Open Branch Diff Against Default Base",
+        "category": "Diff-erent",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "different.openAgainstRef",
+        "title": "Diff-erent: Open Branch Diff Against Ref...",
+        "category": "Diff-erent",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "different.openResource",
+        "title": "Diff-erent: Open File Diff",
+        "category": "Diff-erent",
+        "icon": "$(diff-single)"
+      },
+      {
+        "command": "different.openFileDiff",
+        "title": "Diff-erent: Open Selected File",
+        "category": "Diff-erent",
+        "icon": "$(diff-single)"
+      },
+      {
+        "command": "different.refreshChanges",
+        "title": "Diff-erent: Refresh Changes",
+        "category": "Diff-erent",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "different.openWorkingTree",
+          "when": "scmProvider == git",
+          "group": "navigation@10"
+        },
+        {
+          "command": "different.openAgainstDefaultBase",
+          "when": "scmProvider == git",
+          "group": "navigation@11"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "different.openResource",
+          "when": "resourceScheme == file",
+          "group": "1_diff@20"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "different.openResource",
+          "when": "scmProvider == git",
+          "group": "navigation@10"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "different.refreshChanges",
+          "when": "view == different.changesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "different.openWorkingTree",
+          "when": "view == different.changesView",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "different.openFileDiff",
+          "when": "view == different.changesView && viewItem == differentChange",
+          "group": "inline@1"
+        }
+      ]
+    },
+    "views": {
+      "scm": [
+        {
+          "id": "different.changesView",
+          "name": "Diff-erent Changes"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Diff-erent",
+      "properties": {
+        "different.defaultBaseRef": {
+          "type": "string",
+          "default": "main",
+          "description": "Default Git ref used by Diff-erent when opening a branch diff."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "node --check src/extension.js"
+  }
+}
