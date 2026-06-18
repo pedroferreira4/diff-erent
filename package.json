@@ -5,6 +5,10 @@
   "version": "0.0.1",
   "publisher": "pedro-ferreira",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pedroferreira4/diff-erent.git"
+  },
   "engines": {
     "vscode": "^1.88.0"
   },
@@ -129,6 +133,11 @@
     }
   },
   "scripts": {
-    "check": "node --check src/extension.js"
+    "check": "node --check src/extension.js",
+    "package": "vsce package --no-dependencies",
+    "install-local": "cursor --install-extension diff-erent-$npm_package_version.vsix"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.1"
   }
 }

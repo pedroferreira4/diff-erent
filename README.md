@@ -1,61 +1,76 @@
 # Diff-erent
 
-Diff-erent is a prototype VS Code extension for reading Git diffs in a more review-friendly layout.
+A readable Git diff review surface for VS Code. Diff-erent renders your changes in a custom
+webview built for *reviewing* — file list, per-hunk change summaries, inline token highlights,
+and a static-analysis impact rail — instead of VS Code's plain side-by-side diff.
 
-## Why you do not see it in normal VS Code yet
+> Status: prototype (`v0.2-impact`). Run it from an Extension Development Host; there is no
+> packaged install yet.
 
-This is an extension source folder. It is not installed into your regular VS Code window yet.
+## Features
 
-To see it, open this folder in VS Code and launch an **Extension Development Host**. That second VS Code window is where the extension appears.
+- **Working tree review** — open every uncommitted change in one scrollable surface.
+- **Branch review** — diff your branch against a base ref (merge-base aware).
+- **Single-file review** — open one changed file from Source Control or the editor.
+- **Hunk summaries** — each hunk is labelled with what it touches: behavior, imports, exports,
+  data, styles, UI, tests, type contracts, or dependencies.
+- **Inline token diffing** — word-level highlights inside changed lines.
+- **Impact rail** — a static import graph linking changed files to the workspace files that
+  depend on them, with a low/medium/high risk hint and a "review these first" list.
+- **Binary files** — detected and shown with a clear placeholder instead of an empty diff.
+- **Filtering** — filter the file list by name or by status (modified / added / deleted / renamed).
+- **Compact vs. expanded context**, refresh, "open file", and a "native diff" escape hatch.
 
-## What it does
+## Run it locally
 
-- Opens current working tree changes with `Diff-erent: Open Current Changes`.
-- Opens branch changes against a base ref with `Diff-erent: Open Branch Diff Against Default Base`.
-- Opens a single changed file with `Diff-erent: Open File Diff`.
-- Adds a right-click action to Git Source Control file entries.
-- Adds a `Diff-erent Changes` view under Source Control where clicking a file opens the Diff-erent single-file reader.
-- Renders files, hunks, line numbers, additions, deletions, and inline token highlights in a custom webview.
-- Labels hunks with lightweight change summaries like behavior, imports, data, styles, UI, tests, and type contracts.
-- Shows an impact rail with static import relationships between changed files and unchanged workspace files.
-- Adds file filtering, status filtering, compact context, refresh, open file, and native diff actions.
-
-## Trigger behavior
-
-Diff-erent does not replace VS Code's built-in Git left-click diff. VS Code's Git extension owns that default click.
-
-Use one of these paths instead:
-
-- Right-click a file in Source Control, then choose `Diff-erent: Open File Diff`.
-- Open the `Diff-erent Changes` view in Source Control and click a file.
-- Open a file in the editor and use the editor title action or command palette entry.
-- Use `Diff-erent: Open Current Changes` for the whole working tree.
-
-During a local merge or conflict resolution, `Diff-erent Changes` will list conflicted files from Git status. Opening one shows the working tree version against `HEAD`, including conflict marker edits when Git reports them in the file diff.
-
-## Run locally
+This is extension source, not an installed extension. To try it:
 
 1. Open this folder in VS Code:
-
    ```sh
    code diff-erent
    ```
+2. Press `F5` (or run the **Run Diff-erent Extension** launch config). This opens a second VS
+   Code window — the Extension Development Host — where the extension is active.
+3. In that window, open any Git repository.
+4. Run **Diff-erent: Open Current Changes** from the Command Palette.
 
-2. Press `F5` or run the `Run Diff-erent Extension` launch config.
-3. In the Extension Development Host, open a Git repo.
-4. Run `Diff-erent: Open Current Changes` from the Command Palette.
+## Commands
 
-No install step is required for the current prototype.
+| Command | What it does |
+| --- | --- |
+| `Diff-erent: Open Current Changes` | Review the whole working tree against `HEAD`. |
+| `Diff-erent: Open Branch Diff Against Default Base` | Review your branch against `different.defaultBaseRef`. |
+| `Diff-erent: Open Branch Diff Against Ref…` | Prompt for a ref and review against it. |
+| `Diff-erent: Open File Diff` | Review a single file (from the editor or Source Control). |
+| `Diff-erent: Refresh Changes` | Refresh the `Diff-erent Changes` view. |
+
+You can also:
+
+- Right-click a file in **Source Control** → **Diff-erent: Open File Diff**.
+- Open the **Diff-erent Changes** view under Source Control and click any file.
+- Use the editor title-bar action while a file is open.
+
+Diff-erent does **not** override VS Code's built-in left-click diff — the Git extension owns that.
+Use one of the entry points above instead.
 
 ## Settings
 
-`different.defaultBaseRef` controls the base ref used by `Diff-erent: Open Branch Diff Against Default Base`.
+| Setting | Default | Description |
+| --- | --- | --- |
+| `different.defaultBaseRef` | `main` | Base ref used by **Open Branch Diff Against Default Base**. |
 
-Default: `main`
+## How the impact rail works
+
+The impact view is a heuristic. It scans tracked source files and follows static `import`,
+`export … from`, `require()`, dynamic `import()`, and CSS `@import` references to build a
+dependency graph, then highlights which changed files are most depended-on.
+
+It does **not** use TypeScript project references, bundler/path aliases, framework route graphs,
+or compiler-level symbol analysis, so treat the risk hints as guidance rather than ground truth.
+For large repositories the scan is capped at the first 2,200 tracked source files (noted in the
+rail when truncated).
 
 ## Notes
 
-This is a VS Code extension, not a Codex plugin. A Codex plugin could help generate review summaries later, but the editor UI needs to live in VS Code.
-
-The impact view is heuristic. It scans tracked source files and follows static `import`, `export from`, `require`, dynamic `import()`, and CSS `@import` references. It does not yet use TypeScript project references, bundler aliases, framework route graphs, or compiler-level symbol analysis.
-# diff-erent
+Conflicted files during a merge appear in the **Diff-erent Changes** view; opening one shows the
+working-tree version against `HEAD`, including conflict-marker edits where Git reports them.

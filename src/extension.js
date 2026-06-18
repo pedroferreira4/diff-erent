@@ -744,6 +744,11 @@ function parseUnifiedDiff(diffText) {
       continue;
     }
 
+    if (rawLine.startsWith("Binary files ") || rawLine.startsWith("GIT binary patch")) {
+      file.binary = true;
+      continue;
+    }
+
     if (rawLine.startsWith("--- ")) {
       const oldPath = normalizeDiffPath(rawLine.slice(4));
       file.oldPath = oldPath;
@@ -1097,6 +1102,9 @@ function getHunkTitle(labels, hunk) {
 
 function getFileTags(file, filePath) {
   const tags = [getFileKind(filePath)];
+  if (file.binary) {
+    tags.push("binary");
+  }
   if (isDependencyFile(filePath)) {
     tags.push("dependency");
   }
@@ -1189,6 +1197,7 @@ function createFile(diffGitLine) {
     oldPath: parsed.oldPath,
     newPath: parsed.newPath,
     status: "modified",
+    binary: false,
     additions: 0,
     deletions: 0,
     hunks: []
@@ -1335,22 +1344,33 @@ function getWebviewHtml(webview, state) {
     :root {
       color-scheme: light dark;
       --surface: var(--vscode-editor-background);
-      --surface-raised: var(--vscode-sideBar-background);
-      --surface-subtle: var(--vscode-editorWidget-background);
+      --surface-raised: color-mix(in srgb, var(--vscode-sideBar-background) 70%, var(--vscode-editor-background));
+      --surface-subtle: color-mix(in srgb, var(--vscode-editorWidget-background) 60%, var(--vscode-editor-background));
       --text: var(--vscode-editor-foreground);
       --text-muted: var(--vscode-descriptionForeground);
-      --border: var(--vscode-panel-border);
+      --border: color-mix(in srgb, var(--vscode-panel-border) 55%, transparent);
+      --border-strong: var(--vscode-panel-border);
       --focus: var(--vscode-focusBorder);
-      --added-bg: rgba(35, 134, 54, 0.16);
-      --added-strong: rgba(35, 134, 54, 0.32);
-      --deleted-bg: rgba(248, 81, 73, 0.16);
-      --deleted-strong: rgba(248, 81, 73, 0.32);
-      --changed-bg: rgba(187, 128, 9, 0.16);
+      --added-bg: color-mix(in srgb, #2ea043 14%, transparent);
+      --added-strong: color-mix(in srgb, #2ea043 30%, transparent);
+      --added-fg: #3fb950;
+      --deleted-bg: color-mix(in srgb, #f85149 13%, transparent);
+      --deleted-strong: color-mix(in srgb, #f85149 28%, transparent);
+      --deleted-fg: #f85149;
+      --changed-bg: color-mix(in srgb, #d29922 15%, transparent);
       --accent: var(--vscode-textLink-foreground);
       --accent-soft: color-mix(in srgb, var(--vscode-textLink-foreground) 14%, transparent);
-      --risk-low: rgba(35, 134, 54, 0.24);
-      --risk-medium: rgba(187, 128, 9, 0.26);
-      --risk-high: rgba(248, 81, 73, 0.26);
+      --risk-low: color-mix(in srgb, #2ea043 22%, transparent);
+      --risk-medium: color-mix(in srgb, #d29922 24%, transparent);
+      --risk-high: color-mix(in srgb, #f85149 24%, transparent);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-pill: 999px;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
+      --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.16);
+      --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.22);
+      --space: 16px;
       --motion-dur: 180ms;
       --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
       --code-font: var(--vscode-editor-font-family);
@@ -1376,25 +1396,40 @@ function getWebviewHtml(webview, state) {
     }
 
     button {
-      min-height: 30px;
+      min-height: 32px;
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 5px 9px;
+      border-radius: var(--radius-sm);
+      padding: 6px 12px;
+      font-weight: 550;
       color: var(--vscode-button-secondaryForeground);
       background: var(--vscode-button-secondaryBackground);
       cursor: pointer;
       transition:
         background-color var(--motion-dur) var(--motion-ease),
         border-color var(--motion-dur) var(--motion-ease),
+        box-shadow var(--motion-dur) var(--motion-ease),
         transform var(--motion-dur) var(--motion-ease);
     }
 
     button:hover {
       background: var(--vscode-button-secondaryHoverBackground);
+      border-color: color-mix(in srgb, var(--focus) 40%, var(--border));
     }
 
     button:active {
       transform: translateY(1px);
+    }
+
+    button.primary {
+      color: var(--vscode-button-foreground);
+      background: var(--vscode-button-background);
+      border-color: transparent;
+      box-shadow: var(--shadow-sm);
+    }
+
+    button.primary:hover {
+      background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+      border-color: transparent;
     }
 
     button:disabled {
@@ -1421,9 +1456,12 @@ function getWebviewHtml(webview, state) {
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 14px 18px;
+      padding: 16px 22px;
       border-bottom: 1px solid var(--border);
-      background: var(--surface);
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent),
+        var(--surface);
+      backdrop-filter: blur(6px);
     }
 
     .title-group {
@@ -1439,8 +1477,8 @@ function getWebviewHtml(webview, state) {
 
     h1 {
       font-size: 17px;
-      font-weight: 650;
-      letter-spacing: 0;
+      font-weight: 700;
+      letter-spacing: -0.01em;
     }
 
     .metadata {
@@ -1462,27 +1500,39 @@ function getWebviewHtml(webview, state) {
     .summary {
       display: grid;
       grid-template-columns: repeat(6, minmax(100px, 1fr));
-      gap: 1px;
+      gap: 10px;
+      padding: 14px 22px;
       border-bottom: 1px solid var(--border);
-      background: var(--border);
+      background: var(--surface);
     }
 
     .metric {
-      min-height: 62px;
-      padding: 10px 14px;
+      min-height: 64px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
       background: var(--surface-raised);
+      transition: border-color var(--motion-dur) var(--motion-ease);
+    }
+
+    .metric:hover {
+      border-color: color-mix(in srgb, var(--focus) 30%, var(--border));
     }
 
     .metric-label {
       color: var(--text-muted);
-      font-size: 11px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
     }
 
     .metric-value {
-      margin-top: 6px;
-      font-size: 18px;
-      font-weight: 650;
+      margin-top: 8px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      font-variant-numeric: tabular-nums;
     }
 
     .layout {
@@ -1516,20 +1566,37 @@ function getWebviewHtml(webview, state) {
 
     .status-filters {
       display: flex;
-      gap: 6px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
+      gap: 4px;
+      margin: 10px 12px;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      background: var(--surface-subtle);
       overflow-x: auto;
     }
 
     .status-filter {
-      flex: 0 0 auto;
+      flex: 1 1 auto;
+      min-height: 26px;
+      padding: 4px 10px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-pill);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .status-filter:hover {
+      background: var(--vscode-list-hoverBackground);
+      border-color: transparent;
     }
 
     .status-filter[aria-pressed="true"] {
       color: var(--vscode-button-foreground);
       background: var(--vscode-button-background);
-      border-color: var(--vscode-button-background);
+      border-color: transparent;
+      box-shadow: var(--shadow-sm);
     }
 
     .file-list {
@@ -1539,31 +1606,43 @@ function getWebviewHtml(webview, state) {
     }
 
     .file-link {
+      position: relative;
       width: 100%;
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
       align-items: center;
-      min-height: 38px;
-      margin: 0 0 4px;
+      min-height: 42px;
+      margin: 0 0 3px;
+      padding: 6px 10px 6px 12px;
+      border-radius: var(--radius-sm);
       border-color: transparent;
       text-align: left;
       background: transparent;
       color: var(--text);
       transition:
         background-color var(--motion-dur) var(--motion-ease),
-        border-color var(--motion-dur) var(--motion-ease),
-        transform var(--motion-dur) var(--motion-ease);
+        border-color var(--motion-dur) var(--motion-ease);
     }
 
-    .file-link:hover,
-    .file-link.is-active {
+    .file-link:hover {
       background: var(--vscode-list-hoverBackground);
     }
 
     .file-link.is-active {
-      border-color: var(--focus);
-      transform: translateX(2px);
+      background: var(--accent-soft);
+      border-color: transparent;
+    }
+
+    .file-link.is-active::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 8px;
+      bottom: 8px;
+      width: 3px;
+      border-radius: var(--radius-pill);
+      background: var(--accent);
     }
 
     .file-link-main {
@@ -1618,22 +1697,21 @@ function getWebviewHtml(webview, state) {
     }
 
     .file-diff {
-      margin: 16px;
+      margin: 18px 16px;
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       overflow: hidden;
       background: var(--surface);
+      box-shadow: var(--shadow-sm);
       animation: surface-enter 220ms var(--motion-ease) both;
       transition:
         border-color var(--motion-dur) var(--motion-ease),
-        transform var(--motion-dur) var(--motion-ease),
         box-shadow var(--motion-dur) var(--motion-ease);
     }
 
     .file-diff:hover {
-      border-color: color-mix(in srgb, var(--focus) 54%, var(--border));
-      box-shadow: 0 8px 26px rgba(0, 0, 0, 0.12);
-      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--focus) 40%, var(--border));
+      box-shadow: var(--shadow-md);
     }
 
     .file-header {
@@ -1641,7 +1719,7 @@ function getWebviewHtml(webview, state) {
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 12px 14px;
+      padding: 14px 16px;
       border-bottom: 1px solid var(--border);
       background: var(--surface-subtle);
     }
@@ -1757,6 +1835,13 @@ function getWebviewHtml(webview, state) {
       background: var(--changed-bg);
     }
 
+    .binary-note {
+      margin: 0;
+      padding: 16px 14px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
     .hunk {
       border-bottom: 1px solid var(--border);
     }
@@ -1825,10 +1910,12 @@ function getWebviewHtml(webview, state) {
 
     .diff-line.add {
       background: var(--added-bg);
+      box-shadow: inset 2px 0 0 var(--added-fg);
     }
 
     .diff-line.delete {
       background: var(--deleted-bg);
+      box-shadow: inset 2px 0 0 var(--deleted-fg);
     }
 
     .diff-line.meta {
@@ -1837,17 +1924,21 @@ function getWebviewHtml(webview, state) {
     }
 
     .line-number {
-      padding: 0 8px;
-      border-right: 1px solid var(--border);
-      color: var(--text-muted);
+      padding: 0 10px;
+      color: color-mix(in srgb, var(--text-muted) 70%, transparent);
       text-align: right;
       user-select: none;
       font-variant-numeric: tabular-nums;
+      font-size: 11px;
+    }
+
+    .line-number:nth-child(2) {
+      border-right: 1px solid var(--border);
     }
 
     .line-code {
       min-width: 0;
-      padding: 0 12px;
+      padding: 0 14px;
       white-space: pre;
     }
 
@@ -2037,7 +2128,7 @@ function getWebviewHtml(webview, state) {
         <p class="metadata" id="metadata"></p>
       </div>
       <div class="actions" aria-label="Diff actions">
-        <button type="button" id="refreshButton" title="Refresh">Refresh</button>
+        <button type="button" class="primary" id="refreshButton" title="Refresh">Refresh</button>
         <button type="button" id="expandButton" title="Toggle context">Expand context</button>
       </div>
     </header>
@@ -2199,7 +2290,7 @@ function getWebviewHtml(webview, state) {
 
         const stats = document.createElement("span");
         stats.className = "file-stats";
-        stats.textContent = "+" + file.additions + " -" + file.deletions;
+        stats.textContent = file.binary ? "binary" : "+" + file.additions + " -" + file.deletions;
         main.append(name, meta);
         button.append(main, stats);
         return button;
@@ -2285,7 +2376,14 @@ function getWebviewHtml(webview, state) {
 
       const hunks = document.createElement("div");
       hunks.className = "hunks";
-      hunks.append(...file.hunks.map(renderHunk));
+      if (file.binary) {
+        const note = document.createElement("p");
+        note.className = "binary-note";
+        note.textContent = "Binary file — contents not shown. Use Open file or Native diff to inspect.";
+        hunks.append(note);
+      } else {
+        hunks.append(...file.hunks.map(renderHunk));
+      }
       article.append(header, hunks);
       return article;
     }
@@ -2311,7 +2409,7 @@ function getWebviewHtml(webview, state) {
         chips.append(
           renderTag("+" + hunk.insight.added),
           renderTag("-" + hunk.insight.deleted),
-          ...hunk.insight.labels.map(renderTag)
+          ...hunk.insight.labels.map((label) => renderTag(label))
         );
       }
       header.append(title, chips);
@@ -2749,7 +2847,9 @@ function getWebviewHtml(webview, state) {
     }
 
     function getSubtitle(file) {
-      const counts = "+" + file.additions + " -" + file.deletions + " / " + file.hunks.length + " hunks";
+      const counts = file.binary
+        ? "binary file"
+        : "+" + file.additions + " -" + file.deletions + " / " + file.hunks.length + " hunks";
       if (file.status === "renamed") {
         return file.oldPath + " -> " + file.newPath + " / " + counts;
       }
