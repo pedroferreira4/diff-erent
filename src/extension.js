@@ -1519,6 +1519,22 @@ function getWebviewHtml(webview, state) {
       border-color: color-mix(in srgb, var(--focus) 30%, var(--border));
     }
 
+    .metric-filter {
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .metric-filter:hover {
+      background: var(--surface-raised);
+      border-color: color-mix(in srgb, var(--focus) 45%, var(--border));
+      transform: translateY(-1px);
+    }
+
+    .metric-filter.is-active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
     .metric-label {
       color: var(--text-muted);
       font-size: 10.5px;
@@ -2196,22 +2212,38 @@ function getWebviewHtml(webview, state) {
 
     function renderSummary() {
       const metrics = [
-        ["Files", state.totals.files],
-        ["Hunks", state.totals.hunks],
-        ["Added", "+" + state.totals.additions],
-        ["Deleted", "-" + state.totals.deletions],
-        ["Impact", getImpactSummaryLabel()],
-        ["Range", state.rangeLabel]
+        { label: "Files", value: state.totals.files, status: "all" },
+        { label: "Hunks", value: state.totals.hunks },
+        { label: "Added", value: "+" + state.totals.additions, status: "added" },
+        { label: "Deleted", value: "-" + state.totals.deletions, status: "deleted" },
+        { label: "Impact", value: getImpactSummaryLabel() },
+        { label: "Range", value: state.rangeLabel }
       ];
-      elements.summary.replaceChildren(...metrics.map(([label, value]) => {
-        const item = document.createElement("div");
+      elements.summary.replaceChildren(...metrics.map((metric) => {
+        const interactive = typeof metric.status === "string";
+        const item = document.createElement(interactive ? "button" : "div");
         item.className = "metric";
+
+        if (interactive) {
+          item.type = "button";
+          item.classList.add("metric-filter");
+          const isActive = view.status === metric.status;
+          item.classList.toggle("is-active", isActive);
+          item.setAttribute("aria-pressed", String(isActive));
+          item.title = metric.status === "all" ? "Show all files" : "Filter to " + metric.status + " files";
+          item.addEventListener("click", () => {
+            // Toggle a status filter off (back to all); "all" always shows everything.
+            view.status = view.status === metric.status && metric.status !== "all" ? "all" : metric.status;
+            render();
+          });
+        }
+
         const labelNode = document.createElement("div");
         labelNode.className = "metric-label";
-        labelNode.textContent = label;
+        labelNode.textContent = metric.label;
         const valueNode = document.createElement("div");
         valueNode.className = "metric-value";
-        valueNode.textContent = value;
+        valueNode.textContent = metric.value;
         item.append(labelNode, valueNode);
         return item;
       }));
@@ -2526,15 +2558,27 @@ function getWebviewHtml(webview, state) {
       button.className = "impact-item";
       button.addEventListener("click", () => {
         const file = state.files.find((nextFile) => getFilePath(nextFile) === item.path);
-        if (file) {
-          view.activeFileId = file.id;
-          const target = document.getElementById("file-" + file.id);
-          if (target) {
-            target.scrollIntoView({ block: "start" });
-          }
+        if (!file) {
+          vscode.postMessage({ type: "openFile", filePath: item.path });
+          return;
+        }
+
+        view.activeFileId = file.id;
+        // Clear any active filter that would hide the target, then update the DOM
+        // before scrolling — rendering the reader resets its scroll position.
+        if (!getVisibleFiles().some((nextFile) => nextFile.id === file.id)) {
+          view.status = "all";
+          view.filter = "";
+          elements.fileFilter.value = "";
           render();
         } else {
-          vscode.postMessage({ type: "openFile", filePath: item.path });
+          renderFileList();
+          renderImpactRail();
+        }
+
+        const target = document.getElementById("file-" + file.id);
+        if (target) {
+          target.scrollIntoView({ block: "start" });
         }
       });
 
