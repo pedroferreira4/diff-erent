@@ -21,18 +21,30 @@ and a static-analysis impact rail — instead of VS Code's plain side-by-side di
 - **Filtering** — filter the file list by name or by status (modified / added / deleted / renamed).
 - **Compact vs. expanded context**, refresh, "open file", and a "native diff" escape hatch.
 
-## Run it locally
+## Install it (Cursor or VS Code)
 
-This is extension source, not an installed extension. To try it:
+Clone the repo and run one command — it builds the extension and installs it into your editor
+(Cursor is detected first, then VS Code):
 
-1. Open this folder in VS Code:
-   ```sh
-   code diff-erent
-   ```
-2. Press `F5` (or run the **Run Diff-erent Extension** launch config). This opens a second VS
-   Code window — the Extension Development Host — where the extension is active.
-3. In that window, open any Git repository.
-4. Run **Diff-erent: Open Current Changes** from the Command Palette.
+```sh
+npm run deploy
+```
+
+Then **fully restart** your editor and run **Diff-erent: Open Current Changes** from the Command
+Palette. The only requirement is the `cursor` or `code` shell command on your `PATH` (in the
+editor: Command Palette → *Shell Command: Install 'cursor' command in PATH*).
+
+To reinstall after pulling changes, just run `npm run deploy` again. Bump `version` in
+`package.json` when you want the editor to treat it as an update rather than a reinstall.
+
+## Develop it (live reload)
+
+To hack on the extension itself, run it from an Extension Development Host instead of installing:
+
+1. Open this folder in your editor.
+2. Press `F5` (or run the **Run Diff-erent Extension** launch config) to open a second window
+   with the extension active.
+3. Open any Git repository there and run **Diff-erent: Open Current Changes**.
 
 ## Commands
 
