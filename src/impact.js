@@ -13,6 +13,21 @@ const {
   getDiffFilePath
 } = require("./util");
 
+// Per-repo cache of extracted import/re-export specifiers, keyed by file mtime.
+// We cache the raw specifiers (which depend only on file content) rather than
+// resolved targets (which depend on the changing candidate set), so a cache hit
+// stays correct across scans while still skipping the expensive read + regex.
+const specifierCache = new Map();
+
+function getRepoCache(repoRoot) {
+  let cache = specifierCache.get(repoRoot);
+  if (!cache) {
+    cache = new Map();
+    specifierCache.set(repoRoot, cache);
+  }
+  return cache;
+}
+
 async function buildImpactAnalysis(repoRoot, files) {
   const changedPaths = files
     .map(getDiffFilePath)
@@ -38,12 +53,13 @@ async function buildImpactAnalysis(repoRoot, files) {
     const candidates = trackedFiles.slice(0, 2200);
     const candidateSet = new Set([...candidates, ...uniqueChangedPaths]);
     const aliasConfig = await loadAliasConfig(repoRoot);
+    const cache = getRepoCache(repoRoot);
     const importGraph = new Map();
     const reverseGraph = new Map();
     const reexportGraph = new Map();
 
     for (const filePath of candidates) {
-      const { imports, reexports } = await readWorkspaceImports(repoRoot, filePath, candidateSet, uniqueChangedPaths, aliasConfig);
+      const { imports, reexports } = await readWorkspaceImports(repoRoot, filePath, candidateSet, uniqueChangedPaths, aliasConfig, cache);
       importGraph.set(filePath, imports);
       if (reexports.length > 0) {
         reexportGraph.set(filePath, reexports);
@@ -54,6 +70,13 @@ async function buildImpactAnalysis(repoRoot, files) {
           reverseGraph.set(importedFile, new Set());
         }
         reverseGraph.get(importedFile).add(filePath);
+      }
+    }
+
+    // Drop cache entries for files no longer scanned so it can't grow unbounded.
+    for (const cachedPath of [...cache.keys()]) {
+      if (!candidateSet.has(cachedPath)) {
+        cache.delete(cachedPath);
       }
     }
 
@@ -82,6 +105,17 @@ async function buildImpactAnalysis(repoRoot, files) {
       };
     });
 
+    // When the scan was truncated, "no importers" cannot be trusted — the file's
+    // importers may simply live beyond the cap. Caveat those verdicts explicitly.
+    const truncated = trackedFiles.length > candidates.length;
+    if (truncated) {
+      for (const item of items) {
+        if (item.importedByWorkspaceCount === 0 && item.importedByChanged.length === 0) {
+          item.riskReasons = [...item.riskReasons, "scan truncated — importers may be undercounted"];
+        }
+      }
+    }
+
     const edges = [];
     for (const item of items) {
       for (const target of item.importsChanged) {
@@ -94,12 +128,13 @@ async function buildImpactAnalysis(repoRoot, files) {
 
     return {
       scannedFiles: candidates.length,
+      totalSourceFiles: trackedFiles.length,
       relationships: edges.length + items.reduce((sum, item) => sum + item.importedByWorkspaceCount, 0),
-      truncated: trackedFiles.length > candidates.length,
+      truncated,
       items,
       edges,
-      note: trackedFiles.length > candidates.length
-        ? `Scanned the first ${candidates.length} tracked source files.`
+      note: truncated
+        ? `Scanned the first ${candidates.length} of ${trackedFiles.length} tracked source files.`
         : "Import relationships are based on static import, export, require, and CSS import references, following re-export barrels."
     };
   } catch (error) {
@@ -113,38 +148,63 @@ async function buildImpactAnalysis(repoRoot, files) {
   }
 }
 
-async function readWorkspaceImports(repoRoot, filePath, candidateSet, changedPaths, aliasConfig) {
+async function readWorkspaceImports(repoRoot, filePath, candidateSet, changedPaths, aliasConfig, cache) {
+  const specs = await getFileSpecifiers(repoRoot, filePath, cache);
+  if (!specs) {
+    return { imports: [], reexports: [] };
+  }
+
+  const imports = new Set();
+  const reexports = new Set();
+
+  for (const specifier of specs.importSpecs) {
+    const resolved = resolveSpecifier(filePath, specifier, candidateSet, aliasConfig, changedPaths);
+    if (resolved) {
+      imports.add(resolved);
+    }
+  }
+
+  // `export ... from "x"` re-exports are what make a file a barrel: it forwards
+  // another module's surface. Tracked separately so the graph can see through
+  // barrels to the real dependency.
+  for (const specifier of specs.reexportSpecs) {
+    const resolved = resolveSpecifier(filePath, specifier, candidateSet, aliasConfig, changedPaths);
+    if (resolved) {
+      reexports.add(resolved);
+    }
+  }
+
+  return { imports: [...imports], reexports: [...reexports] };
+}
+
+// Extract a file's import/re-export specifiers, reusing a cached result when the
+// file's mtime is unchanged. `io` is injectable for testing. Returns null for
+// unreadable / oversized / non-file paths.
+async function getFileSpecifiers(repoRoot, filePath, cache, io = fs) {
   try {
     const absolutePath = path.join(repoRoot, filePath);
-    const stat = await fs.stat(absolutePath);
+    const stat = await io.stat(absolutePath);
     if (!stat.isFile() || stat.size > 700 * 1024) {
-      return { imports: [], reexports: [] };
+      return null;
     }
 
-    const content = await fs.readFile(absolutePath, "utf8");
-    const imports = new Set();
-    const reexports = new Set();
-
-    for (const specifier of extractImportSpecifiers(content)) {
-      const resolved = resolveSpecifier(filePath, specifier, candidateSet, aliasConfig, changedPaths);
-      if (resolved) {
-        imports.add(resolved);
-      }
+    const cached = cache && cache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs) {
+      return cached;
     }
 
-    // `export ... from "x"` re-exports are what make a file a barrel: it forwards
-    // another module's surface. Tracked separately so the graph can see through
-    // barrels to the real dependency.
-    for (const specifier of extractReexportSpecifiers(content)) {
-      const resolved = resolveSpecifier(filePath, specifier, candidateSet, aliasConfig, changedPaths);
-      if (resolved) {
-        reexports.add(resolved);
-      }
+    const content = await io.readFile(absolutePath, "utf8");
+    const entry = {
+      mtimeMs: stat.mtimeMs,
+      importSpecs: extractImportSpecifiers(content),
+      reexportSpecs: extractReexportSpecifiers(content)
+    };
+    if (cache) {
+      cache.set(filePath, entry);
     }
-
-    return { imports: [...imports], reexports: [...reexports] };
+    return entry;
   } catch {
-    return { imports: [], reexports: [] };
+    return null;
   }
 }
 
@@ -377,6 +437,7 @@ function getImpactRisk(filePath, workspaceImporterCount, importsChangedCount, ch
 module.exports = {
   buildImpactAnalysis,
   readWorkspaceImports,
+  getFileSpecifiers,
   extractImportSpecifiers,
   extractReexportSpecifiers,
   resolveImportSpecifier,

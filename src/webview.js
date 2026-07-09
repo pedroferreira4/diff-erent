@@ -654,6 +654,16 @@ function getWebviewHtml(webview, state) {
       padding: 12px;
     }
 
+    .impact-warning {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: var(--text);
+      background: var(--risk-high);
+      font-size: 11.5px;
+      line-height: 1.45;
+    }
+
     .insight-card {
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -1158,7 +1168,14 @@ function getWebviewHtml(webview, state) {
       overviewCopy.textContent = getImpactOverviewCopy();
       overview.append(overviewTitle, overviewCopy);
 
-      if (state.impact && state.impact.note) {
+      if (state.impact && state.impact.truncated) {
+        const warning = document.createElement("p");
+        warning.className = "impact-warning";
+        warning.textContent = "⚠ Large repo: only " + state.impact.scannedFiles + " of "
+          + state.impact.totalSourceFiles + " source files were scanned. Importer counts and "
+          + "\"no importers\" verdicts may be incomplete.";
+        overview.append(warning);
+      } else if (state.impact && state.impact.note) {
         const note = document.createElement("p");
         note.textContent = state.impact.note;
         overview.append(note);
