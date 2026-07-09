@@ -664,6 +664,11 @@ function getWebviewHtml(webview, state) {
       line-height: 1.45;
     }
 
+    .insight-card.missed-callers {
+      border-color: color-mix(in srgb, #f85149 45%, var(--border));
+      box-shadow: inset 3px 0 0 #f85149;
+    }
+
     .insight-card {
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -1197,6 +1202,8 @@ function getWebviewHtml(webview, state) {
         active.append(renderRelationshipGroup("Imported elsewhere", activeImpact.importedByWorkspace, "Unchanged files that import this file."));
       }
 
+      const missedCard = renderMissedCallersCard();
+
       const riskCard = document.createElement("section");
       riskCard.className = "insight-card";
       const riskTitle = document.createElement("h3");
@@ -1213,7 +1220,7 @@ function getWebviewHtml(webview, state) {
       }
       riskCard.append(riskTitle, riskList);
 
-      inner.append(overview, active, riskCard);
+      inner.append(overview, ...(missedCard ? [missedCard] : []), active, riskCard);
       elements.impactRail.replaceChildren(inner);
     }
 
@@ -1248,6 +1255,46 @@ function getWebviewHtml(webview, state) {
       }));
 
       return section;
+    }
+
+    function renderMissedCallersCard() {
+      const missed = state.impact && state.impact.missedCallers ? state.impact.missedCallers : [];
+      if (missed.length === 0) {
+        return null;
+      }
+
+      const card = document.createElement("section");
+      card.className = "insight-card missed-callers";
+      const title = document.createElement("h3");
+      title.textContent = "Possibly missed callers (" + missed.length + ")";
+      const copy = document.createElement("p");
+      copy.textContent = "These files import a symbol removed or changed here, but were not updated in this diff.";
+      const list = document.createElement("div");
+      list.className = "impact-list";
+      list.append(...missed.slice(0, 12).map(renderMissedCaller));
+      card.append(title, copy, list);
+      return card;
+    }
+
+    function renderMissedCaller(entry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "impact-item";
+      button.title = "Open " + entry.caller;
+      button.addEventListener("click", () => vscode.postMessage({ type: "openFile", filePath: entry.caller }));
+
+      const name = document.createElement("span");
+      name.className = "impact-item-title";
+      name.textContent = entry.caller;
+
+      const meta = document.createElement("span");
+      meta.className = "impact-item-meta";
+      meta.textContent = (entry.kind === "removed" ? "imports removed " : "imports changed ") + entry.symbol
+        + " from " + entry.file;
+
+      const tagClass = entry.kind === "removed" ? "impact-high" : "impact-medium";
+      button.append(name, renderTag(entry.kind, tagClass), meta);
+      return button;
     }
 
     function renderImpactItem(item) {
