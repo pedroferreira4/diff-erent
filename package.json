@@ -133,7 +133,7 @@
     }
   },
   "scripts": {
-    "check": "node --check src/extension.js && node --check src/diff.js && node --check src/enrich.js && node --check src/impact.js && node --check src/aliases.js && node --check src/git.js && node --check src/util.js && node --check src/webview.js",
+    "check": "node --check src/extension.js && node --check src/diff.js && node --check src/enrich.js && node --check src/impact.js && node --check src/aliases.js && node --check src/callers.js && node --check src/git.js && node --check src/util.js && node --check src/webview.js",
     "test": "node --test",
     "package": "vsce package --no-dependencies",
     "deploy": "node scripts/deploy.js"
