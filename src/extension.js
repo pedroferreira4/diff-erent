@@ -4,6 +4,7 @@ const vscode = require("vscode");
 const { parseUnifiedDiff } = require("./diff");
 const { enrichParsedDiff } = require("./enrich");
 const { buildImpactAnalysis } = require("./impact");
+const { buildCoChangeAnalysis } = require("./cochange");
 const {
   execGit,
   getRepositoryRoot,
@@ -270,7 +271,10 @@ async function openDiffLens(context, request) {
     const diffText = await execGit(repoRoot, diffRequest.args, { acceptExitCodes: diffRequest.acceptExitCodes });
     const parsed = parseUnifiedDiff(diffText);
     enrichParsedDiff(parsed);
-    const impact = await buildImpactAnalysis(repoRoot, parsed.files);
+    const [impact, coChange] = await Promise.all([
+      buildImpactAnalysis(repoRoot, parsed.files),
+      buildCoChangeAnalysis(repoRoot, parsed.files)
+    ]);
     const gitSummary = await getGitSummary(repoRoot, diffRequest);
 
     const panel = vscode.window.createWebviewPanel(
@@ -297,6 +301,7 @@ async function openDiffLens(context, request) {
       files: parsed.files,
       totals: parsed.totals,
       impact,
+      coChange,
       gitSummary
     };
     const session = { state };
@@ -327,7 +332,10 @@ async function handleWebviewMessage(panel, session, request, message) {
       const diffText = await execGit(state.repoRoot, diffRequest.args, { acceptExitCodes: diffRequest.acceptExitCodes });
       const parsed = parseUnifiedDiff(diffText);
       enrichParsedDiff(parsed);
-      const impact = await buildImpactAnalysis(state.repoRoot, parsed.files);
+      const [impact, coChange] = await Promise.all([
+        buildImpactAnalysis(state.repoRoot, parsed.files),
+        buildCoChangeAnalysis(state.repoRoot, parsed.files)
+      ]);
       const gitSummary = await getGitSummary(state.repoRoot, diffRequest);
       const nextState = {
         ...state,
@@ -343,6 +351,7 @@ async function handleWebviewMessage(panel, session, request, message) {
         files: parsed.files,
         totals: parsed.totals,
         impact,
+        coChange,
         gitSummary
       };
       session.state = nextState;
