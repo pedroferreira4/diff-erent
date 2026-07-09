@@ -841,6 +841,7 @@ function getWebviewHtml(webview, state) {
       </div>
       <div class="actions" aria-label="Diff actions">
         <button type="button" class="primary" id="refreshButton" title="Refresh">Refresh</button>
+        <button type="button" id="sortButton" title="Toggle file order">Sort: diff order</button>
         <button type="button" id="expandButton" title="Toggle context">Expand context</button>
       </div>
     </header>
@@ -866,6 +867,7 @@ function getWebviewHtml(webview, state) {
       filter: "",
       status: "all",
       expanded: false,
+      sort: "diff",
       activeFileId: ""
     };
 
@@ -878,8 +880,15 @@ function getWebviewHtml(webview, state) {
       reader: document.getElementById("reader"),
       impactRail: document.getElementById("impactRail"),
       refreshButton: document.getElementById("refreshButton"),
+      sortButton: document.getElementById("sortButton"),
       expandButton: document.getElementById("expandButton")
     };
+
+    // Review order is only meaningful when the impact scan produced one.
+    const canSortByReview = Boolean(state.impact && state.impact.reviewOrder && state.impact.reviewOrder.length > 0);
+    if (!canSortByReview) {
+      elements.sortButton.style.display = "none";
+    }
 
     elements.metadata.textContent = [state.prototypeVersion, state.gitSummary.repoName, state.gitSummary.branch, state.rangeLabel]
       .filter(Boolean)
@@ -889,6 +898,11 @@ function getWebviewHtml(webview, state) {
     elements.expandButton.addEventListener("click", () => {
       view.expanded = !view.expanded;
       elements.expandButton.textContent = view.expanded ? "Compact context" : "Expand context";
+      render();
+    });
+    elements.sortButton.addEventListener("click", () => {
+      view.sort = view.sort === "review" ? "diff" : "review";
+      elements.sortButton.textContent = view.sort === "review" ? "Sort: review order" : "Sort: diff order";
       render();
     });
     elements.fileFilter.addEventListener("input", (event) => {
@@ -969,12 +983,28 @@ function getWebviewHtml(webview, state) {
     }
 
     function getVisibleFiles() {
-      return state.files.filter((file) => {
+      const filtered = state.files.filter((file) => {
         const filePath = getFilePath(file).toLowerCase();
         const statusMatches = view.status === "all" || file.status === view.status;
         const filterMatches = !view.filter || filePath.includes(view.filter);
         return statusMatches && filterMatches;
       });
+
+      if (view.sort !== "review" || !canSortByReview) {
+        return filtered;
+      }
+
+      // Sort by the engine's review order; files without a rank (non-source,
+      // e.g. docs/binaries) keep their diff position after the ranked ones.
+      const rank = new Map(state.impact.reviewOrder.map((path, index) => [path, index]));
+      const rankOf = (file) => {
+        const r = rank.get(getFilePath(file));
+        return r === undefined ? Number.MAX_SAFE_INTEGER : r;
+      };
+      return filtered
+        .map((file, index) => ({ file, index }))
+        .sort((a, b) => rankOf(a.file) - rankOf(b.file) || a.index - b.index)
+        .map((entry) => entry.file);
     }
 
     function renderFileList() {
