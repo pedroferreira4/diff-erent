@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execGit } = require("./git");
+const { loadAliasConfig, aliasBaseCandidates } = require("./aliases");
 const {
   SOURCE_EXTENSIONS,
   toPosixPath,
@@ -36,11 +37,12 @@ async function buildImpactAnalysis(repoRoot, files) {
       .filter(isLikelySourceFile);
     const candidates = trackedFiles.slice(0, 2200);
     const candidateSet = new Set([...candidates, ...uniqueChangedPaths]);
+    const aliasConfig = await loadAliasConfig(repoRoot);
     const importGraph = new Map();
     const reverseGraph = new Map();
 
     for (const filePath of candidates) {
-      const imports = await readWorkspaceImports(repoRoot, filePath, candidateSet, uniqueChangedPaths);
+      const imports = await readWorkspaceImports(repoRoot, filePath, candidateSet, uniqueChangedPaths, aliasConfig);
       importGraph.set(filePath, imports);
 
       for (const importedFile of imports) {
@@ -102,7 +104,7 @@ async function buildImpactAnalysis(repoRoot, files) {
   }
 }
 
-async function readWorkspaceImports(repoRoot, filePath, candidateSet, changedPaths) {
+async function readWorkspaceImports(repoRoot, filePath, candidateSet, changedPaths, aliasConfig) {
   try {
     const absolutePath = path.join(repoRoot, filePath);
     const stat = await fs.stat(absolutePath);
@@ -121,9 +123,21 @@ async function readWorkspaceImports(repoRoot, filePath, candidateSet, changedPat
         continue;
       }
 
-      const inferred = inferAliasImport(specifier, changedPaths);
-      if (inferred) {
-        imports.add(inferred);
+      // Prefer real alias resolution from tsconfig/jsconfig `paths` + `baseUrl`.
+      const aliased = resolveAliasImport(specifier, aliasConfig, candidateSet);
+      if (aliased) {
+        imports.add(aliased);
+        continue;
+      }
+
+      // Fallback: only when the repo has no alias config to resolve against, fall
+      // back to suffix-matching. With a config present this is skipped, since it
+      // would manufacture false edges (e.g. two files sharing a basename).
+      if (!aliasConfig) {
+        const inferred = inferAliasImport(specifier, changedPaths);
+        if (inferred) {
+          imports.add(inferred);
+        }
       }
     }
 
@@ -160,6 +174,30 @@ function resolveImportSpecifier(fromFile, specifier, candidateSet) {
   }
 
   const base = normalizePosix(path.posix.join(path.posix.dirname(fromFile), specifier));
+  return probeCandidate(base, candidateSet);
+}
+
+// Resolve a bare specifier through tsconfig/jsconfig aliases into a real tracked
+// file. Returns undefined for relative specifiers, protocol URLs, or when no
+// alias base maps onto a known file.
+function resolveAliasImport(specifier, aliasConfig, candidateSet) {
+  if (!aliasConfig || specifier.startsWith(".") || /^[a-z]+:\/\//i.test(specifier)) {
+    return undefined;
+  }
+
+  for (const base of aliasBaseCandidates(specifier, aliasConfig)) {
+    const hit = probeCandidate(base, candidateSet);
+    if (hit) {
+      return hit;
+    }
+  }
+
+  return undefined;
+}
+
+// Turn a base path (no extension) into a real tracked file by trying the file
+// itself, each source extension, and an index file within a directory.
+function probeCandidate(base, candidateSet) {
   const candidates = [
     base,
     ...SOURCE_EXTENSIONS.map((extension) => `${base}${extension}`),
@@ -199,6 +237,8 @@ module.exports = {
   readWorkspaceImports,
   extractImportSpecifiers,
   resolveImportSpecifier,
+  resolveAliasImport,
+  probeCandidate,
   inferAliasImport,
   getImpactRisk
 };
