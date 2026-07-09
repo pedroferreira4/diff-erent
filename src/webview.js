@@ -1203,6 +1203,7 @@ function getWebviewHtml(webview, state) {
       }
 
       const missedCard = renderMissedCallersCard();
+      const coChangeCard = renderCoChangeCard();
 
       const riskCard = document.createElement("section");
       riskCard.className = "insight-card";
@@ -1220,7 +1221,13 @@ function getWebviewHtml(webview, state) {
       }
       riskCard.append(riskTitle, riskList);
 
-      inner.append(overview, ...(missedCard ? [missedCard] : []), active, riskCard);
+      inner.append(
+        overview,
+        ...(missedCard ? [missedCard] : []),
+        active,
+        riskCard,
+        ...(coChangeCard ? [coChangeCard] : [])
+      );
       elements.impactRail.replaceChildren(inner);
     }
 
@@ -1255,6 +1262,45 @@ function getWebviewHtml(webview, state) {
       }));
 
       return section;
+    }
+
+    function renderCoChangeCard() {
+      const suggestions = state.coChange && state.coChange.suggestions ? state.coChange.suggestions : [];
+      if (suggestions.length === 0) {
+        return null;
+      }
+
+      const card = document.createElement("section");
+      card.className = "insight-card";
+      const title = document.createElement("h3");
+      title.textContent = "Often changed together";
+      const copy = document.createElement("p");
+      copy.textContent = "History suggests these usually change alongside your edits, but they're not in this diff.";
+      const list = document.createElement("div");
+      list.className = "impact-list";
+      list.append(...suggestions.map(renderCoChangeItem));
+      card.append(title, copy, list);
+      return card;
+    }
+
+    function renderCoChangeItem(suggestion) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "impact-item";
+      button.title = "Open " + suggestion.path;
+      button.addEventListener("click", () => vscode.postMessage({ type: "openFile", filePath: suggestion.path }));
+
+      const name = document.createElement("span");
+      name.className = "impact-item-title";
+      name.textContent = suggestion.path;
+
+      const meta = document.createElement("span");
+      meta.className = "impact-item-meta";
+      const pct = Math.round(suggestion.confidence * 100);
+      meta.textContent = "changes with " + suggestion.withChangedFile + " " + pct + "% (" + suggestion.support + "×)";
+
+      button.append(name, meta);
+      return button;
     }
 
     function renderMissedCallersCard() {
