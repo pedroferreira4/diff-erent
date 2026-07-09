@@ -63,10 +63,30 @@ test("getFileKind and isDependencyFile classify paths", () => {
 });
 
 test("getImpactRisk escalates on importers and dependency files", () => {
-  assert.equal(getImpactRisk("package.json", 0, 0, 0), "high");
-  assert.equal(getImpactRisk("src/util.ts", 12, 0, 0), "high");
-  assert.equal(getImpactRisk("src/api/schema.ts", 0, 0, 0), "medium");
-  assert.equal(getImpactRisk("src/leaf.ts", 0, 0, 0), "low");
+  assert.equal(getImpactRisk("package.json", 0, 0, 0).level, "high");
+  assert.equal(getImpactRisk("src/util.ts", 12, 0, 0).level, "high");
+  assert.equal(getImpactRisk("src/api/schema.ts", 0, 0, 0).level, "medium");
+  assert.equal(getImpactRisk("src/leaf.ts", 0, 0, 0).level, "low");
+});
+
+test("getImpactRisk explains every verdict", () => {
+  const high = getImpactRisk("src/util.ts", 12, 0, 0);
+  assert.ok(high.reasons.some((r) => r.includes("12 files import this")));
+
+  const changed = getImpactRisk("src/core.ts", 1, 0, 4);
+  assert.equal(changed.level, "high");
+  assert.ok(changed.reasons.some((r) => r.includes("4 other changed files")));
+
+  const contract = getImpactRisk("src/api/schema.ts", 0, 0, 0);
+  assert.equal(contract.level, "medium");
+  assert.ok(contract.reasons.some((r) => r.includes("shared contract")));
+
+  const leaf = getImpactRisk("src/leaf.ts", 0, 0, 0);
+  assert.equal(leaf.level, "low");
+  assert.deepEqual(leaf.reasons, ["no importers found in the scanned files"]);
+
+  const single = getImpactRisk("src/thing.ts", 1, 0, 0);
+  assert.ok(single.reasons.some((r) => r === "1 file imports this"), "singular grammar");
 });
 
 test("extractImportSpecifiers finds import/require/export/css references", () => {

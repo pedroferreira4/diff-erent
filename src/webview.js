@@ -718,6 +718,15 @@ function getWebviewHtml(webview, state) {
       line-height: 1.4;
     }
 
+    .impact-item-why {
+      display: block;
+      margin-top: 2px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-style: italic;
+      line-height: 1.4;
+    }
+
     .relationship-list {
       display: grid;
       gap: 6px;
@@ -1260,7 +1269,20 @@ function getWebviewHtml(webview, state) {
       const meta = document.createElement("span");
       meta.className = "impact-item-meta";
       meta.textContent = getImpactItemMeta(item);
-      button.append(name, renderTag(item.risk + " risk", "impact-" + item.risk), meta);
+
+      const reasons = item.riskReasons || [];
+      const riskTag = renderTag(item.risk + " risk", "impact-" + item.risk);
+      if (reasons.length > 0) {
+        riskTag.title = reasons.join(" · ");
+      }
+      button.append(name, riskTag, meta);
+
+      if (reasons.length > 0) {
+        const why = document.createElement("span");
+        why.className = "impact-item-why";
+        why.textContent = "Why: " + reasons.join("; ");
+        button.append(why);
+      }
       return button;
     }
 
@@ -1429,7 +1451,11 @@ function getWebviewHtml(webview, state) {
       const tags = [];
       const impact = getImpactItem(getFilePath(file));
       if (impact) {
-        tags.push(renderTag(impact.risk + " impact", "impact-" + impact.risk));
+        const riskTag = renderTag(impact.risk + " impact", "impact-" + impact.risk);
+        if (impact.riskReasons && impact.riskReasons.length > 0) {
+          riskTag.title = impact.riskReasons.join(" · ");
+        }
+        tags.push(riskTag);
       }
 
       for (const tag of file.tags || []) {

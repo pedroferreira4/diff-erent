@@ -67,12 +67,14 @@ async function buildImpactAnalysis(repoRoot, files) {
       const changedImporters = importedBy.filter((importer) => changedSet.has(importer));
       const workspaceImporters = importedBy.filter((importer) => !changedSet.has(importer));
       const file = files.find((nextFile) => getDiffFilePath(nextFile) === filePath);
+      const risk = getImpactRisk(filePath, workspaceImporters.length, importsChanged.length, changedImporters.length);
 
       return {
         path: filePath,
         kind: getFileKind(filePath),
         status: file ? file.status : "modified",
-        risk: getImpactRisk(filePath, workspaceImporters.length, importsChanged.length, changedImporters.length),
+        risk: risk.level,
+        riskReasons: risk.reasons,
         importsChanged: importsChanged.slice(0, 8),
         importedByChanged: changedImporters.slice(0, 8),
         importedByWorkspace: workspaceImporters.slice(0, 10),
@@ -329,14 +331,47 @@ function buildBarrelAwareDeps(importGraph, reexportGraph, maxHops = 2) {
   };
 }
 
+// Classify a changed file's blast radius and, crucially, say WHY. Returns
+// { level, reasons } so the UI never shows a naked verdict a reviewer can't trust.
 function getImpactRisk(filePath, workspaceImporterCount, importsChangedCount, changedImporterCount) {
-  if (isDependencyFile(filePath) || workspaceImporterCount >= 8 || changedImporterCount >= 3) {
-    return "high";
+  const reasons = [];
+  let level = "low";
+
+  if (isDependencyFile(filePath)) {
+    reasons.push("dependency manifest — affects the whole install");
+    level = "high";
   }
-  if (workspaceImporterCount > 0 || importsChangedCount > 0 || /types?|schema|contract|api/i.test(filePath)) {
-    return "medium";
+  if (workspaceImporterCount >= 8) {
+    reasons.push(`${workspaceImporterCount} files import this`);
+    level = "high";
   }
-  return "low";
+  if (changedImporterCount >= 3) {
+    reasons.push(`${changedImporterCount} other changed files import this`);
+    level = "high";
+  }
+
+  if (level !== "high") {
+    if (workspaceImporterCount > 0) {
+      reasons.push(workspaceImporterCount === 1
+        ? "1 file imports this"
+        : `${workspaceImporterCount} files import this`);
+      level = "medium";
+    }
+    if (importsChangedCount > 0) {
+      reasons.push(`depends on ${importsChangedCount} other changed file${importsChangedCount === 1 ? "" : "s"}`);
+      level = "medium";
+    }
+    if (/types?|schema|contract|api/i.test(filePath)) {
+      reasons.push("path looks like a shared contract (types/schema/api)");
+      level = "medium";
+    }
+  }
+
+  if (reasons.length === 0) {
+    reasons.push("no importers found in the scanned files");
+  }
+
+  return { level, reasons };
 }
 
 module.exports = {
