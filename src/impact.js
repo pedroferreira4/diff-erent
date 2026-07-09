@@ -40,10 +40,14 @@ async function buildImpactAnalysis(repoRoot, files) {
     const aliasConfig = await loadAliasConfig(repoRoot);
     const importGraph = new Map();
     const reverseGraph = new Map();
+    const reexportGraph = new Map();
 
     for (const filePath of candidates) {
-      const imports = await readWorkspaceImports(repoRoot, filePath, candidateSet, uniqueChangedPaths, aliasConfig);
+      const { imports, reexports } = await readWorkspaceImports(repoRoot, filePath, candidateSet, uniqueChangedPaths, aliasConfig);
       importGraph.set(filePath, imports);
+      if (reexports.length > 0) {
+        reexportGraph.set(filePath, reexports);
+      }
 
       for (const importedFile of imports) {
         if (!reverseGraph.has(importedFile)) {
@@ -53,10 +57,13 @@ async function buildImpactAnalysis(repoRoot, files) {
       }
     }
 
+    const importersOf = buildBarrelAwareImporters(reverseGraph, reexportGraph);
+    const dependenciesOf = buildBarrelAwareDeps(importGraph, reexportGraph);
+
     const changedSet = new Set(uniqueChangedPaths);
     const items = uniqueChangedPaths.map((filePath) => {
-      const importedBy = [...(reverseGraph.get(filePath) || [])].filter((importer) => importer !== filePath);
-      const importsChanged = (importGraph.get(filePath) || []).filter((target) => changedSet.has(target) && target !== filePath);
+      const importedBy = [...importersOf(filePath)];
+      const importsChanged = [...dependenciesOf(filePath)].filter((target) => changedSet.has(target) && target !== filePath);
       const changedImporters = importedBy.filter((importer) => changedSet.has(importer));
       const workspaceImporters = importedBy.filter((importer) => !changedSet.has(importer));
       const file = files.find((nextFile) => getDiffFilePath(nextFile) === filePath);
@@ -91,7 +98,7 @@ async function buildImpactAnalysis(repoRoot, files) {
       edges,
       note: trackedFiles.length > candidates.length
         ? `Scanned the first ${candidates.length} tracked source files.`
-        : "Import relationships are based on static import, export, require, and CSS import references."
+        : "Import relationships are based on static import, export, require, and CSS import references, following re-export barrels."
     };
   } catch (error) {
     return {
@@ -109,42 +116,55 @@ async function readWorkspaceImports(repoRoot, filePath, candidateSet, changedPat
     const absolutePath = path.join(repoRoot, filePath);
     const stat = await fs.stat(absolutePath);
     if (!stat.isFile() || stat.size > 700 * 1024) {
-      return [];
+      return { imports: [], reexports: [] };
     }
 
     const content = await fs.readFile(absolutePath, "utf8");
-    const specifiers = extractImportSpecifiers(content);
     const imports = new Set();
+    const reexports = new Set();
 
-    for (const specifier of specifiers) {
-      const resolved = resolveImportSpecifier(filePath, specifier, candidateSet);
+    for (const specifier of extractImportSpecifiers(content)) {
+      const resolved = resolveSpecifier(filePath, specifier, candidateSet, aliasConfig, changedPaths);
       if (resolved) {
         imports.add(resolved);
-        continue;
-      }
-
-      // Prefer real alias resolution from tsconfig/jsconfig `paths` + `baseUrl`.
-      const aliased = resolveAliasImport(specifier, aliasConfig, candidateSet);
-      if (aliased) {
-        imports.add(aliased);
-        continue;
-      }
-
-      // Fallback: only when the repo has no alias config to resolve against, fall
-      // back to suffix-matching. With a config present this is skipped, since it
-      // would manufacture false edges (e.g. two files sharing a basename).
-      if (!aliasConfig) {
-        const inferred = inferAliasImport(specifier, changedPaths);
-        if (inferred) {
-          imports.add(inferred);
-        }
       }
     }
 
-    return [...imports];
+    // `export ... from "x"` re-exports are what make a file a barrel: it forwards
+    // another module's surface. Tracked separately so the graph can see through
+    // barrels to the real dependency.
+    for (const specifier of extractReexportSpecifiers(content)) {
+      const resolved = resolveSpecifier(filePath, specifier, candidateSet, aliasConfig, changedPaths);
+      if (resolved) {
+        reexports.add(resolved);
+      }
+    }
+
+    return { imports: [...imports], reexports: [...reexports] };
   } catch {
-    return [];
+    return { imports: [], reexports: [] };
   }
+}
+
+// Resolve one specifier to a tracked file: relative first, then tsconfig aliases,
+// then (only without a config) suffix inference — which would otherwise invent
+// false edges from shared basenames.
+function resolveSpecifier(fromFile, specifier, candidateSet, aliasConfig, changedPaths) {
+  const relative = resolveImportSpecifier(fromFile, specifier, candidateSet);
+  if (relative) {
+    return relative;
+  }
+
+  const aliased = resolveAliasImport(specifier, aliasConfig, candidateSet);
+  if (aliased) {
+    return aliased;
+  }
+
+  if (!aliasConfig) {
+    return inferAliasImport(specifier, changedPaths);
+  }
+
+  return undefined;
 }
 
 function extractImportSpecifiers(content) {
@@ -163,6 +183,21 @@ function extractImportSpecifiers(content) {
       specifiers.add(match[1]);
       match = pattern.exec(content);
     }
+  }
+
+  return [...specifiers];
+}
+
+// Only the specifiers a file re-exports (`export * from`, `export { x } from`).
+// A file with re-exports is a barrel that forwards these modules' surface.
+function extractReexportSpecifiers(content) {
+  const specifiers = new Set();
+  const pattern = /\bexport\s+(?:type\s+)?(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s+from\s+["']([^"']+)["']/g;
+
+  let match = pattern.exec(content);
+  while (match) {
+    specifiers.add(match[1]);
+    match = pattern.exec(content);
   }
 
   return [...specifiers];
@@ -222,6 +257,78 @@ function inferAliasImport(specifier, changedPaths) {
   });
 }
 
+// Who depends on a file, seeing through barrels: if A imports barrel B and B
+// re-exports X, then A is an importer of X even though it never names X. Bounded
+// to `maxHops` re-export levels. Intermediary barrels are excluded from the
+// result — they are plumbing, not real consumers.
+function buildBarrelAwareImporters(reverseGraph, reexportGraph, maxHops = 2) {
+  const forwardedBy = new Map();
+  for (const [barrel, targets] of reexportGraph) {
+    for (const target of targets) {
+      if (!forwardedBy.has(target)) {
+        forwardedBy.set(target, new Set());
+      }
+      forwardedBy.get(target).add(barrel);
+    }
+  }
+
+  return function importersOf(file) {
+    // Files whose direct importers also count as importers of `file`: `file`
+    // itself plus barrels that (transitively) re-export it.
+    const chain = new Set([file]);
+    let frontier = [file];
+    for (let hop = 0; hop < maxHops && frontier.length > 0; hop += 1) {
+      const next = [];
+      for (const node of frontier) {
+        for (const barrel of forwardedBy.get(node) || []) {
+          if (!chain.has(barrel)) {
+            chain.add(barrel);
+            next.push(barrel);
+          }
+        }
+      }
+      frontier = next;
+    }
+
+    const importers = new Set();
+    for (const node of chain) {
+      for (const importer of reverseGraph.get(node) || []) {
+        importers.add(importer);
+      }
+    }
+    for (const node of chain) {
+      importers.delete(node);
+    }
+    return importers;
+  };
+}
+
+// What a file depends on, seeing through barrels: a direct import of barrel B
+// also pulls in the modules B re-exports, bounded to `maxHops` levels.
+function buildBarrelAwareDeps(importGraph, reexportGraph, maxHops = 2) {
+  return function dependenciesOf(file) {
+    const result = new Set();
+    const seen = new Set([file]);
+    let frontier = [...(importGraph.get(file) || [])];
+    for (let hop = 0; hop <= maxHops && frontier.length > 0; hop += 1) {
+      const next = [];
+      for (const dep of frontier) {
+        if (seen.has(dep)) {
+          continue;
+        }
+        seen.add(dep);
+        result.add(dep);
+        if (reexportGraph.has(dep)) {
+          next.push(...reexportGraph.get(dep));
+        }
+      }
+      frontier = next;
+    }
+    result.delete(file);
+    return result;
+  };
+}
+
 function getImpactRisk(filePath, workspaceImporterCount, importsChangedCount, changedImporterCount) {
   if (isDependencyFile(filePath) || workspaceImporterCount >= 8 || changedImporterCount >= 3) {
     return "high";
@@ -236,9 +343,13 @@ module.exports = {
   buildImpactAnalysis,
   readWorkspaceImports,
   extractImportSpecifiers,
+  extractReexportSpecifiers,
   resolveImportSpecifier,
+  resolveSpecifier,
   resolveAliasImport,
   probeCandidate,
+  buildBarrelAwareImporters,
+  buildBarrelAwareDeps,
   inferAliasImport,
   getImpactRisk
 };
