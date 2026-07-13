@@ -2,7 +2,7 @@
   "name": "diff-erent",
   "displayName": "Diff-erent",
   "description": "A readable Git diff review surface for VS Code.",
-  "version": "0.0.1",
+  "version": "0.3.0",
   "publisher": "pedro-ferreira",
   "license": "MIT",
   "repository": {

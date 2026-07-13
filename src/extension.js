@@ -18,7 +18,7 @@ const { toPosixPath } = require("./util");
 
 const ORIGINAL_SCHEME = "diff-erent-original";
 const EMPTY_SCHEME = "diff-erent-empty";
-const PROTOTYPE_VERSION = "v0.2-impact";
+const PROTOTYPE_VERSION = "v0.3-signals";
 
 /** @param {vscode.ExtensionContext} context */
 function activate(context) {
