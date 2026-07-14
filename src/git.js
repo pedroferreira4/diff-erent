@@ -171,6 +171,24 @@ async function createDiffRequest(repoRoot, request) {
     };
   }
 
+  if (request.kind === "local") {
+    // Review the whole working directory, including untracked files, and work
+    // even with no commits. Assembled from multiple git calls, so it's marked
+    // `composite` and produced by buildLocalDiffText rather than a single `args`.
+    const hasHead = await hasCommits(repoRoot);
+    return {
+      mode: "local",
+      composite: true,
+      hasHead,
+      title: "Diff-erent: Local Files",
+      rangeLabel: hasHead ? "HEAD -> working tree (+ untracked)" : "no commits -> working tree",
+      baseLabel: hasHead ? "HEAD" : "(no commits)",
+      leftRef: hasHead ? "HEAD" : null,
+      rightRef: null,
+      useWorkingTreeRight: true
+    };
+  }
+
   await execGit(repoRoot, ["rev-parse", "--verify", `${request.baseRef}^{commit}`]);
   const mergeBase = (await execGit(repoRoot, ["merge-base", request.baseRef, "HEAD"])).trim();
 
@@ -193,6 +211,80 @@ async function createDiffRequest(repoRoot, request) {
       "--"
     ]
   };
+}
+
+async function hasCommits(repoRoot) {
+  try {
+    await execGit(repoRoot, ["rev-parse", "--verify", "HEAD"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Run the diff for a request, producing unified-diff text. Normal requests are a
+// single `git diff`; the local-files request is composite (tracked changes plus
+// each untracked file), so it routes to buildLocalDiffText.
+async function runDiff(repoRoot, diffRequest) {
+  if (diffRequest.composite) {
+    return buildLocalDiffText(repoRoot, diffRequest);
+  }
+  return execGit(repoRoot, diffRequest.args, { acceptExitCodes: diffRequest.acceptExitCodes });
+}
+
+// Assemble a working-directory review including untracked files. With commits,
+// `git diff HEAD` covers tracked edits and each untracked file is added via
+// --no-index. With no commits there's no HEAD to diff against, so every listed
+// file is rendered as a new addition.
+async function buildLocalDiffText(repoRoot, diffRequest) {
+  const parts = [];
+
+  if (diffRequest.hasHead) {
+    const tracked = await execGit(repoRoot, [
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "--find-renames",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+      "HEAD",
+      "--"
+    ]);
+    if (tracked.trim()) {
+      parts.push(tracked.replace(/\n+$/, ""));
+    }
+  }
+
+  const statusText = await execGit(repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
+  const changes = statusText.split(/\r?\n/).filter(Boolean).map(parseStatusLine).filter(Boolean);
+
+  for (const change of changes) {
+    const isUntracked = change.status === "??";
+    // With commits, tracked edits are already in `git diff HEAD`; only untracked
+    // files need the extra --no-index pass. With no commits, everything is new.
+    if (!isUntracked && diffRequest.hasHead) {
+      continue;
+    }
+    try {
+      const fileDiff = await execGit(repoRoot, [
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-index",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "/dev/null",
+        change.filePath
+      ], { acceptExitCodes: [0, 1] });
+      if (fileDiff.trim()) {
+        parts.push(fileDiff.replace(/\n+$/, ""));
+      }
+    } catch {
+      // Skip files that can't be diffed (e.g. staged-then-deleted, unreadable).
+    }
+  }
+
+  return parts.join("\n");
 }
 
 async function getGitSummary(repoRoot, diffRequest) {
@@ -228,6 +320,9 @@ module.exports = {
   getStatusLabel,
   isTrackedFile,
   createDiffRequest,
+  hasCommits,
+  runDiff,
+  buildLocalDiffText,
   getGitSummary,
   shortRef
 };

@@ -2,7 +2,7 @@
   "name": "diff-erent",
   "displayName": "Diff-erent",
   "description": "A readable Git diff review surface for VS Code.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "pedro-ferreira",
   "license": "MIT",
   "repository": {
@@ -19,6 +19,7 @@
   ],
   "activationEvents": [
     "onCommand:different.openWorkingTree",
+    "onCommand:different.openLocalFiles",
     "onCommand:different.openAgainstDefaultBase",
     "onCommand:different.openAgainstRef",
     "onCommand:different.openResource",
@@ -34,6 +35,12 @@
         "title": "Diff-erent: Open Current Changes",
         "category": "Diff-erent",
         "icon": "$(diff)"
+      },
+      {
+        "command": "different.openLocalFiles",
+        "title": "Diff-erent: Review Local Files",
+        "category": "Diff-erent",
+        "icon": "$(files)"
       },
       {
         "command": "different.openAgainstDefaultBase",
@@ -103,6 +110,11 @@
           "command": "different.openWorkingTree",
           "when": "view == different.changesView",
           "group": "navigation@2"
+        },
+        {
+          "command": "different.openLocalFiles",
+          "when": "view == different.changesView",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [

@@ -11,6 +11,7 @@ const {
   getWorkspaceChanges,
   getStatusLabel,
   createDiffRequest,
+  runDiff,
   getGitSummary
 } = require("./git");
 const { getWebviewHtml } = require("./webview");
@@ -18,7 +19,7 @@ const { toPosixPath } = require("./util");
 
 const ORIGINAL_SCHEME = "diff-erent-original";
 const EMPTY_SCHEME = "diff-erent-empty";
-const PROTOTYPE_VERSION = "v0.3-signals";
+const PROTOTYPE_VERSION = "v0.3.1-local";
 
 /** @param {vscode.ExtensionContext} context */
 function activate(context) {
@@ -31,6 +32,7 @@ function activate(context) {
     vscode.workspace.registerTextDocumentContentProvider(EMPTY_SCHEME, emptyProvider),
     vscode.window.registerTreeDataProvider("different.changesView", changesProvider),
     vscode.commands.registerCommand("different.openWorkingTree", () => openDiffLens(context, { kind: "workingTree" })),
+    vscode.commands.registerCommand("different.openLocalFiles", () => openDiffLens(context, { kind: "local" })),
     vscode.commands.registerCommand("different.openAgainstDefaultBase", () => {
       const baseRef = vscode.workspace.getConfiguration("different").get("defaultBaseRef", "main");
       return openDiffLens(context, { kind: "branch", baseRef });
@@ -268,7 +270,7 @@ async function openDiffLens(context, request) {
   try {
     const repoRoot = request.repoRoot || (await getRepositoryRoot(workspaceFolder.uri.fsPath));
     const diffRequest = await createDiffRequest(repoRoot, request);
-    const diffText = await execGit(repoRoot, diffRequest.args, { acceptExitCodes: diffRequest.acceptExitCodes });
+    const diffText = await runDiff(repoRoot, diffRequest);
     const parsed = parseUnifiedDiff(diffText);
     enrichParsedDiff(parsed);
     const [impact, coChange] = await Promise.all([
@@ -329,7 +331,7 @@ async function handleWebviewMessage(panel, session, request, message) {
   if (message.type === "refresh") {
     try {
       const diffRequest = await createDiffRequest(state.repoRoot, request);
-      const diffText = await execGit(state.repoRoot, diffRequest.args, { acceptExitCodes: diffRequest.acceptExitCodes });
+      const diffText = await runDiff(state.repoRoot, diffRequest);
       const parsed = parseUnifiedDiff(diffText);
       enrichParsedDiff(parsed);
       const [impact, coChange] = await Promise.all([
