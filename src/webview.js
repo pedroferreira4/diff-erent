@@ -1208,7 +1208,7 @@ function getWebviewHtml(webview, state) {
         warning.className = "impact-warning";
         warning.textContent = "⚠ Large repo: only " + state.impact.scannedFiles + " of "
           + state.impact.totalSourceFiles + " source files were scanned. Importer counts and "
-          + "\"no importers\" verdicts may be incomplete.";
+          + "'no importers' verdicts may be incomplete.";
         overview.append(warning);
       } else if (state.impact && state.impact.note) {
         const note = document.createElement("p");
